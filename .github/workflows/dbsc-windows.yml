@@ -1,0 +1,128 @@
+name: Build DBSC Windows x64
+on:
+  push:
+    branches: [ dbsc-windows-build ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install MSYS2 MinGW
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-zlib
+            make
+            curl
+            tar
+
+      - name: Fetch upstream DBSC
+        shell: msys2 {0}
+        run: |
+          rm -rf /tmp/dbsc-upstream
+          mkdir -p /tmp/dbsc-upstream
+          curl -L --fail https://github.com/DikuMUDOmnibus/DragonBall-Saga/archive/refs/heads/master.tar.gz | tar -xz --strip-components=1 -C /tmp/dbsc-upstream
+          rm -rf dbsc-windows/game
+          mkdir -p dbsc-windows/game
+          cp -a /tmp/dbsc-upstream/. dbsc-windows/game/
+
+      - name: Apply Windows compatibility patches
+        shell: msys2 {0}
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          root=Path("dbsc-windows/game/src")
+
+          p=root/"comm.c"
+          s=p.read_text(errors="ignore")
+          s=s.replace("#include <sys/wait.h>","")
+          s=s.replace("#include <crypt.h>","")
+          p.write_text(s)
+
+          p=root/"mud.h"
+          s=p.read_text(errors="ignore")
+          s=s.replace('#include <dlfcn.h> /*this might not be necessary for your UNIX machine.*/',
+                      '#ifndef WIN32\n#include <dlfcn.h>\n#endif')
+          p.write_text(s)
+
+          p=root/"hotboot.c"
+          s=p.read_text(errors="ignore")
+          s=s.replace("#include <unistd.h>","#ifndef WIN32\n#include <unistd.h>\n#endif")
+          s=s.replace("#include <sys/wait.h>","#ifndef WIN32\n#include <sys/wait.h>\n#endif")
+          s=s.replace('execl( EXE_FILE, "dbsaga", buf, "hotboot", buf2, buf3, (char *)NULL );',
+                      '/* Windows standalone build: hotboot exec disabled; use launcher restart. */')
+          p.write_text(s)
+
+          # DNS slave code requires fork/pipe/waitpid; local build runs with name resolving disabled.
+          (root/"dns_win_stub.c").write_text(r'''
+          #include "mud.h"
+          DNS_DATA *first_cache = NULL;
+          DNS_DATA *last_cache = NULL;
+          void save_dns(void) {}
+          void prune_dns(void) {}
+          void check_dns(void) {}
+          void load_dns(void) {}
+          char *in_dns_cache(char *ip) { static char blank[1] = {0}; return blank; }
+          void process_dns(DESCRIPTOR_DATA *d) { (void)d; }
+          void resolve_dns(DESCRIPTOR_DATA *d, long ip) { (void)d; (void)ip; }
+          void do_cache(CHAR_DATA *ch, char *argument) { (void)argument; send_to_char("DNS cache disabled in Windows local build.\n\r", ch); }
+          ''')
+
+          # MinGW compatibility aliases.
+          p=root/"mud.h"; s=p.read_text(errors="ignore")
+          marker="#ifdef WIN32"
+          add=r'''
+          #ifdef WIN32
+          #include <windows.h>
+          #include <direct.h>
+          #include <process.h>
+          #ifndef unlink
+          #define unlink _unlink
+          #endif
+          #ifndef sleep
+          #define sleep(x) Sleep((x)*1000)
+          #endif
+          #endif
+          '''
+          s=s.replace(marker,add+"\n"+marker,1)
+          p.write_text(s)
+          PY
+
+      - name: Compile native DBSC server
+        shell: msys2 {0}
+        run: |
+          cd dbsc-windows/game/src
+          SRC=$(ls *.c | grep -v -E '^(dns|resolver|imc)\.c$')
+          gcc -std=gnu99 -O2 -fcommon -DWIN32 -D_WIN32_WINNT=0x0601 \
+            -Wno-implicit-function-declaration -Wno-int-conversion -Wno-incompatible-pointer-types \
+            -I. -Ichat $SRC dns_win_stub.c \
+            -o ../../dbsaga-server.exe \
+            -lws2_32 -lwinmm -ladvapi32 -luser32 -lshell32
+
+      - name: Compile integrated launcher
+        shell: msys2 {0}
+        run: |
+          cd dbsc-windows
+          g++ -std=c++17 -O2 -municode launcher.cpp -o DBSC.exe -mwindows -lws2_32
+
+      - name: Assemble portable package
+        shell: msys2 {0}
+        run: |
+          mkdir -p dist/DBSC
+          cp DBSC.exe dbsaga-server.exe README.txt dist/DBSC/
+          for d in area boards clans classes corpses deities gods hotboot houses log planets player races space system; do
+            if [ -d game/$d ]; then cp -a game/$d dist/DBSC/; fi
+          done
+          cp -a game/*.README game/*LICENSE* game/COPYRIGHT* dist/DBSC/ 2>/dev/null || true
+
+      - name: Upload Windows package
+        uses: actions/upload-artifact@v4
+        with:
+          name: DBSC-Windows-x64
+          path: dbsc-windows/dist/DBSC
