@@ -1,0 +1,75 @@
+name: Build DBSC Android APK
+on:
+  push:
+    branches: [ dbsc-android-build ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dbsc-android
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install Android SDK pieces
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018" "cmake;3.22.1"
+
+      - name: Fetch DBSC 2.5.2 upstream
+        run: |
+          rm -rf /tmp/dbsc-upstream
+          mkdir -p /tmp/dbsc-upstream
+          curl -L --fail https://github.com/DikuMUDOmnibus/DragonBall-Saga/archive/refs/heads/master.tar.gz | tar -xz --strip-components=1 -C /tmp/dbsc-upstream
+          rm -rf app/src/main/cpp/dbsc app/src/main/assets/dbsc
+          mkdir -p app/src/main/cpp/dbsc app/src/main/assets/dbsc/src
+          cp -a /tmp/dbsc-upstream/src/. app/src/main/cpp/dbsc/
+          rsync -a --exclude src /tmp/dbsc-upstream/ app/src/main/assets/dbsc/
+
+      - name: Android compatibility patch
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path("app/src/main/cpp/dbsc/mud.h")
+          s=p.read_text(errors="ignore")
+          s=s.replace('#include <dlfcn.h> /*this might not be necessary for your UNIX machine.*/',
+          '#include <dlfcn.h> /*this might not be necessary for your UNIX machine.*/\n#ifdef ANDROID\n#define EXE_FILE "dbsaga"\n#endif')
+          p.write_text(s)
+
+          # Android has no external resolver executable; force direct/no-name behavior.
+          p=Path("app/src/main/cpp/dbsc/dns.c")
+          if p.exists():
+              s=p.read_text(errors="ignore")
+              s=s.replace('if( ( pid = fork() ) > 0 )', 'if( 0 && ( pid = fork() ) > 0 )')
+              p.write_text(s)
+
+          # Hotboot via execl is not meaningful inside an APK.
+          p=Path("app/src/main/cpp/dbsc/hotboot.c")
+          if p.exists():
+              s=p.read_text(errors="ignore")
+              s=s.replace('execl( EXE_FILE, "dbsaga", buf, "hotboot", buf2, buf3, (char *)NULL );',
+                          '/* Android embedded build: hotboot exec disabled. */')
+              p.write_text(s)
+          PY
+
+      - name: Download Gradle
+        run: |
+          curl -L --fail -o /tmp/gradle.zip https://services.gradle.org/distributions/gradle-8.9-bin.zip
+          unzip -q /tmp/gradle.zip -d /tmp
+
+      - name: Build debug APK
+        run: /tmp/gradle-8.9/bin/gradle --no-daemon :app:assembleDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: DBSC-Android-debug
+          path: dbsc-android/app/build/outputs/apk/debug/app-debug.apk
