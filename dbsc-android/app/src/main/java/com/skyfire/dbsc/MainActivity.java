@@ -23,9 +23,21 @@ public class MainActivity extends Activity {
             try {
                 File root = new File(getFilesDir(), "dbsc");
                 copyAssetTree("dbsc", root);
+
+                // DBSC expects to run from <root>/src so its historical ../area,
+                // ../system, ../player, etc. relative paths resolve correctly.
+                // Android APK assets do not preserve empty directories, so create it.
+                File runtimeSrc = new File(root, "src");
+                if (!runtimeSrc.exists() && !runtimeSrc.mkdirs()) {
+                    throw new IOException("could not create runtime src directory: " + runtimeSrc);
+                }
+
                 if (serverStarted.compareAndSet(false, true)) {
                     runOnUiThread(() -> status.setText("Starting server on 127.0.0.1:4000..."));
-                    new Thread(() -> NativeBridge.runServer(root.getAbsolutePath(), 4000), "DBSC-Server").start();
+                    new Thread(() -> {
+                        int rc = NativeBridge.runServer(root.getAbsolutePath(), 4000);
+                        append("\n[Server exited] code " + rc + "\n");
+                    }, "DBSC-Server").start();
                     Thread.sleep(1600);
                 }
                 connectLocal();
