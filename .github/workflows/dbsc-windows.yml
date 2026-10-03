@@ -38,159 +38,58 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
+          import re
           root=Path("dbsc-windows/game/src")
 
           p=root/"comm.c"
-          s=p.read_text(errors="ignore")
-          s=s.replace("#include <sys/wait.h>","")
-          s=s.replace("#include <crypt.h>","")
-          p.write_text(s)
+          t=p.read_text(errors="ignore")
+          t=t.replace("#include <sys/wait.h>","").replace("#include <crypt.h>","")
+          p.write_text(t)
 
           p=root/"mud.h"
-          s=p.read_text(errors="ignore")
-          s=s.replace('#include <dlfcn.h> /*this might not be necessary for your UNIX machine.*/',
-                      '#ifndef WIN32\n#include <dlfcn.h>\n#endif')
-          p.write_text(s)
-
-          # Modern MinGW provides dirent; DBSC's ancient MSVC shim conflicts with it.
-          p=root/"mud.h"
-          s=p.read_text(errors="ignore")
-          old='''#ifdef WIN32
-void gettimeofday(struct timeval *tv, struct timezone *tz);
-void kill_timer();
-
-/* directory scanning stuff */
-
-typedef struct dirent
-{
-    char *\td_name;
-};
-
-typedef struct
-{
-    HANDLE\t\thDirectory;
-    WIN32_FIND_DATA\tWin32FindData;
-    struct dirent\tdirinfo;
-    char\t\tsDirName[MAX_PATH];
-} DIR;
-
-
-DIR *opendir(char * sDirName);
-struct dirent *readdir (DIR * dp);
-void closedir(DIR * dp);
-
-/* --------------- Stuff for Win32 services ------------------ */'''
-          new='''#ifdef WIN32
-#ifndef __MINGW32__
-void gettimeofday(struct timeval *tv, struct timezone *tz);
-
-/* directory scanning stuff */
-typedef struct dirent { char * d_name; };
-typedef struct {
-    HANDLE hDirectory;
-    WIN32_FIND_DATA Win32FindData;
-    struct dirent dirinfo;
-    char sDirName[MAX_PATH];
-} DIR;
-DIR *opendir(char * sDirName);
-struct dirent *readdir (DIR * dp);
-void closedir(DIR * dp);
-#else
-#include <dirent.h>
-#endif
-void kill_timer();
-
-/* --------------- Stuff for Win32 services ------------------ */'''
-          s=s.replace(old,new)
-          s=s.replace('#define QUICKMATCH(p1, p2)      (int) (p1) == (int) (p2)',
-                      '#define QUICKMATCH(p1, p2)      ((p1) == (p2))')
-          p.write_text(s)
+          t=p.read_text(errors="ignore")
+          t=t.replace('#include <dlfcn.h> /*this might not be necessary for your UNIX machine.*/','#ifndef WIN32\\n#include <dlfcn.h>\\n#endif')
+          t=t.replace('#define QUICKMATCH(p1, p2)      (int) (p1) == (int) (p2)','#define QUICKMATCH(p1, p2)      ((p1) == (p2))')
+          marker='void gettimeofday(struct timeval *tv, struct timezone *tz);\\nvoid kill_timer();\\n\\n/* directory scanning stuff */'
+          t=t.replace(marker,'#ifndef __MINGW32__\\nvoid gettimeofday(struct timeval *tv, struct timezone *tz);\\n#endif\\nvoid kill_timer();\\n\\n/* directory scanning stuff */')
+          a=t.find('typedef struct dirent', t.find('/* directory scanning stuff */'))
+          b=t.find('/* --------------- Stuff for Win32 services', a)
+          if a >= 0 and b >= 0:
+              legacy=t[a:b]
+              repl='#ifdef __MINGW32__\\n#include <dirent.h>\\n#else\\n'+legacy+'#endif\\n\\n'
+              t=t[:a]+repl+t[b:]
+          p.write_text(t)
 
           p=root/"misc.c"
-          s=p.read_text(errors="ignore")
-          s=s.replace('#ifdef WIN32\n\n/* routines not in Windows runtime libraries */',
-                      '#if defined(WIN32) && !defined(__MINGW32__)\n\n/* routines not in Windows runtime libraries */')
-          p.write_text(s)
+          t=p.read_text(errors="ignore")
+          t=t.replace('#ifdef WIN32\\n\\n/* routines not in Windows runtime libraries */','#if defined(WIN32) && !defined(__MINGW32__)\\n\\n/* routines not in Windows runtime libraries */')
+          p.write_text(t)
 
-          # Fix old source declarations that modern GCC correctly rejects.
           p=root/"services.c"
-          s=p.read_text(errors="ignore")
-          s=s.replace('VOID    service_main(DWORD dwArgc, LPTSTR *lpszArgv);','static VOID service_main(DWORD dwArgc, LPTSTR *lpszArgv);')
-          s=s.replace('VOID    WINAPI service_ctrl(DWORD dwCtrlCode);','static VOID WINAPI service_ctrl(DWORD dwCtrlCode);')
-          s=s.replace('BOOL    ReportStatusToSCMgr(DWORD dwCurrentState,','static BOOL ReportStatusToSCMgr(DWORD dwCurrentState,')
-          s=s.replace('VOID    worker_thread(VOID *notused);','static VOID worker_thread(VOID *notused);')
-          s=s.replace('VOID    StopService(LPTSTR lpszMsg);','static VOID StopService(LPTSTR lpszMsg);')
-          p.write_text(s)
+          t=p.read_text(errors="ignore")
+          t=t.replace('VOID    service_main(DWORD dwArgc, LPTSTR *lpszArgv);','static VOID service_main(DWORD dwArgc, LPTSTR *lpszArgv);')
+          t=t.replace('VOID    WINAPI service_ctrl(DWORD dwCtrlCode);','static VOID WINAPI service_ctrl(DWORD dwCtrlCode);')
+          t=t.replace('BOOL    ReportStatusToSCMgr(DWORD dwCurrentState,','static BOOL ReportStatusToSCMgr(DWORD dwCurrentState,')
+          t=t.replace('VOID    worker_thread(VOID *notused);','static VOID worker_thread(VOID *notused);')
+          t=t.replace('VOID    StopService(LPTSTR lpszMsg);','static VOID StopService(LPTSTR lpszMsg);')
+          p.write_text(t)
 
-          # sha256.c assumes BSD/Linux endian.h. Windows x64 is little-endian.
           p=root/"sha256.c"
-          s=p.read_text(errors="ignore")
-          old='''#if defined(__FreeBSD__)
-#include <sys/endian.h>
-#else
-#include <endian.h>
-#endif'''
-          new='''#ifdef WIN32
-#ifndef LITTLE_ENDIAN
-#define LITTLE_ENDIAN 1234
-#endif
-#ifndef BIG_ENDIAN
-#define BIG_ENDIAN 4321
-#endif
-#ifndef BYTE_ORDER
-#define BYTE_ORDER LITTLE_ENDIAN
-#endif
-#else
-#if defined(__FreeBSD__)
-#include <sys/endian.h>
-#else
-#include <endian.h>
-#endif
-#endif'''
-          s=s.replace(old,new)
-          p.write_text(s)
+          t=p.read_text(errors="ignore")
+          old='#if defined(__FreeBSD__)\\n#include <sys/endian.h>\\n#else\\n#include <endian.h>\\n#endif'
+          new='#ifdef WIN32\\n#ifndef LITTLE_ENDIAN\\n#define LITTLE_ENDIAN 1234\\n#endif\\n#ifndef BIG_ENDIAN\\n#define BIG_ENDIAN 4321\\n#endif\\n#ifndef BYTE_ORDER\\n#define BYTE_ORDER LITTLE_ENDIAN\\n#endif\\n#else\\n'+old+'\\n#endif'
+          t=t.replace(old,new)
+          p.write_text(t)
 
-                    p=root/"hotboot.c"
-          s=p.read_text(errors="ignore")
-          s=s.replace("#include <unistd.h>","#ifndef WIN32\n#include <unistd.h>\n#endif")
-          s=s.replace("#include <sys/wait.h>","#ifndef WIN32\n#include <sys/wait.h>\n#endif")
-          s=s.replace('execl( EXE_FILE, "dbsaga", buf, "hotboot", buf2, buf3, (char *)NULL );',
-                      '/* Windows standalone build: hotboot exec disabled; use launcher restart. */')
-          p.write_text(s)
+          p=root/"hotboot.c"
+          t=p.read_text(errors="ignore")
+          t=t.replace("#include <unistd.h>","#ifndef WIN32\\n#include <unistd.h>\\n#endif")
+          t=t.replace("#include <sys/wait.h>","#ifndef WIN32\\n#include <sys/wait.h>\\n#endif")
+          t=t.replace('execl( EXE_FILE, "dbsaga", buf, "hotboot", buf2, buf3, (char *)NULL );','/* Windows standalone build: hotboot exec disabled; use launcher restart. */')
+          p.write_text(t)
 
-          # DNS slave code requires fork/pipe/waitpid; local build runs with name resolving disabled.
-          (root/"dns_win_stub.c").write_text(r'''
-          #include "mud.h"
-          DNS_DATA *first_cache = NULL;
-          DNS_DATA *last_cache = NULL;
-          void save_dns(void) {}
-          void prune_dns(void) {}
-          void check_dns(void) {}
-          void load_dns(void) {}
-          char *in_dns_cache(char *ip) { static char blank[1] = {0}; return blank; }
-          void process_dns(DESCRIPTOR_DATA *d) { (void)d; }
-          void resolve_dns(DESCRIPTOR_DATA *d, long ip) { (void)d; (void)ip; }
-          void do_cache(CHAR_DATA *ch, char *argument) { (void)argument; send_to_char("DNS cache disabled in Windows local build.\n\r", ch); }
-          ''')
-
-          # MinGW compatibility aliases.
-          p=root/"mud.h"; s=p.read_text(errors="ignore")
-          marker="#ifdef WIN32"
-          add=r'''
-          #ifdef WIN32
-          #include <windows.h>
-          #include <direct.h>
-          #include <process.h>
-          #ifndef unlink
-          #define unlink _unlink
-          #endif
-          #ifndef sleep
-          #define sleep(x) Sleep((x)*1000)
-          #endif
-          #endif
-          '''
-          s=s.replace(marker,add+"\n"+marker,1)
-          p.write_text(s)
+          stub='#include "mud.h"\\nDNS_DATA *first_cache = NULL;\\nDNS_DATA *last_cache = NULL;\\nvoid save_dns(void) {}\\nvoid prune_dns(void) {}\\nvoid check_dns(void) {}\\nvoid load_dns(void) {}\\nchar *in_dns_cache(char *ip) { static char blank[1] = {0}; return blank; }\\nvoid process_dns(DESCRIPTOR_DATA *d) { (void)d; }\\nvoid resolve_dns(DESCRIPTOR_DATA *d, long ip) { (void)d; (void)ip; }\\nvoid do_cache(CHAR_DATA *ch, char *argument) { (void)argument; send_to_char("DNS cache disabled in Windows local build.\\\\n\\\\r", ch); }\\n'
+          (root/"dns_win_stub.c").write_text(stub)
           PY
 
       - name: Compile native DBSC server
