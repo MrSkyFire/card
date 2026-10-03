@@ -52,7 +52,105 @@ jobs:
                       '#ifndef WIN32\n#include <dlfcn.h>\n#endif')
           p.write_text(s)
 
-          p=root/"hotboot.c"
+          # Modern MinGW provides dirent; DBSC's ancient MSVC shim conflicts with it.
+          p=root/"mud.h"
+          s=p.read_text(errors="ignore")
+          old='''#ifdef WIN32
+void gettimeofday(struct timeval *tv, struct timezone *tz);
+void kill_timer();
+
+/* directory scanning stuff */
+
+typedef struct dirent
+{
+    char *\td_name;
+};
+
+typedef struct
+{
+    HANDLE\t\thDirectory;
+    WIN32_FIND_DATA\tWin32FindData;
+    struct dirent\tdirinfo;
+    char\t\tsDirName[MAX_PATH];
+} DIR;
+
+
+DIR *opendir(char * sDirName);
+struct dirent *readdir (DIR * dp);
+void closedir(DIR * dp);
+
+/* --------------- Stuff for Win32 services ------------------ */'''
+          new='''#ifdef WIN32
+#ifndef __MINGW32__
+void gettimeofday(struct timeval *tv, struct timezone *tz);
+
+/* directory scanning stuff */
+typedef struct dirent { char * d_name; };
+typedef struct {
+    HANDLE hDirectory;
+    WIN32_FIND_DATA Win32FindData;
+    struct dirent dirinfo;
+    char sDirName[MAX_PATH];
+} DIR;
+DIR *opendir(char * sDirName);
+struct dirent *readdir (DIR * dp);
+void closedir(DIR * dp);
+#else
+#include <dirent.h>
+#endif
+void kill_timer();
+
+/* --------------- Stuff for Win32 services ------------------ */'''
+          s=s.replace(old,new)
+          s=s.replace('#define QUICKMATCH(p1, p2)      (int) (p1) == (int) (p2)',
+                      '#define QUICKMATCH(p1, p2)      ((p1) == (p2))')
+          p.write_text(s)
+
+          p=root/"misc.c"
+          s=p.read_text(errors="ignore")
+          s=s.replace('#ifdef WIN32\n\n/* routines not in Windows runtime libraries */',
+                      '#if defined(WIN32) && !defined(__MINGW32__)\n\n/* routines not in Windows runtime libraries */')
+          p.write_text(s)
+
+          # Fix old source declarations that modern GCC correctly rejects.
+          p=root/"services.c"
+          s=p.read_text(errors="ignore")
+          s=s.replace('VOID    service_main(DWORD dwArgc, LPTSTR *lpszArgv);','static VOID service_main(DWORD dwArgc, LPTSTR *lpszArgv);')
+          s=s.replace('VOID    WINAPI service_ctrl(DWORD dwCtrlCode);','static VOID WINAPI service_ctrl(DWORD dwCtrlCode);')
+          s=s.replace('BOOL    ReportStatusToSCMgr(DWORD dwCurrentState,','static BOOL ReportStatusToSCMgr(DWORD dwCurrentState,')
+          s=s.replace('VOID    worker_thread(VOID *notused);','static VOID worker_thread(VOID *notused);')
+          s=s.replace('VOID    StopService(LPTSTR lpszMsg);','static VOID StopService(LPTSTR lpszMsg);')
+          p.write_text(s)
+
+          # sha256.c assumes BSD/Linux endian.h. Windows x64 is little-endian.
+          p=root/"sha256.c"
+          s=p.read_text(errors="ignore")
+          old='''#if defined(__FreeBSD__)
+#include <sys/endian.h>
+#else
+#include <endian.h>
+#endif'''
+          new='''#ifdef WIN32
+#ifndef LITTLE_ENDIAN
+#define LITTLE_ENDIAN 1234
+#endif
+#ifndef BIG_ENDIAN
+#define BIG_ENDIAN 4321
+#endif
+#ifndef BYTE_ORDER
+#define BYTE_ORDER LITTLE_ENDIAN
+#endif
+#else
+#if defined(__FreeBSD__)
+#include <sys/endian.h>
+#else
+#include <endian.h>
+#endif
+#endif'''
+          s=s.replace(old,new)
+          p.write_text(s)
+
+                    p=root/"hotboot.c"
           s=p.read_text(errors="ignore")
           s=s.replace("#include <unistd.h>","#ifndef WIN32\n#include <unistd.h>\n#endif")
           s=s.replace("#include <sys/wait.h>","#ifndef WIN32\n#include <sys/wait.h>\n#endif")
