@@ -14,5 +14,5 @@ set_source_files_properties("${DBSC_DIR}/comm.c" PROPERTIES COMPILE_DEFINITIONS 
 
 target_include_directories(dbsc PRIVATE "${DBSC_DIR}" "${DBSC_DIR}/chat")
 target_compile_definitions(dbsc PRIVATE ANDROID=1)
-target_compile_options(dbsc PRIVATE -Wno-implicit-function-declaration -Wno-int-conversion -Wno-incompatible-pointer-types -Wno-format -Wno-deprecated-non-prototype)
+target_compile_options(dbsc PRIVATE -fcommon -Wno-implicit-function-declaration -Wno-int-conversion -Wno-incompatible-pointer-types -Wno-format -Wno-deprecated-non-prototype)
 target_link_libraries(dbsc log z dl m)
