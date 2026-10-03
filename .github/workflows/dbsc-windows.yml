@@ -18,6 +18,7 @@ jobs:
           install: >-
             mingw-w64-ucrt-x86_64-gcc
             mingw-w64-ucrt-x86_64-zlib
+            mingw-w64-ucrt-x86_64-python
             make
             curl
             tar
