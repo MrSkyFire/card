@@ -38,11 +38,10 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          p=Path("app/src/main/cpp/dbsc/mud.h")
-          s=p.read_text(errors="ignore")
-          s=s.replace('#include <dlfcn.h> /*this might not be necessary for your UNIX machine.*/',
-          '#include <dlfcn.h> /*this might not be necessary for your UNIX machine.*/\n#ifdef ANDROID\n#define EXE_FILE "dbsaga"\n#endif')
-          p.write_text(s)
+          p=Path("app/src/main/cpp/dbsc/comm.c")
+          if p.exists():
+              s=p.read_text(errors="ignore").replace('#include <crypt.h>\\n','')
+              p.write_text(s)
 
           p=Path("app/src/main/cpp/dbsc/hotboot.c")
           if p.exists():
