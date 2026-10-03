@@ -64,3 +64,5 @@ jobs:
         with:
           name: DBSC-Android-debug
           path: dbsc-android/app/build/outputs/apk/debug/app-debug.apk
+
+# rebuild after legacy -fcommon linker fix
