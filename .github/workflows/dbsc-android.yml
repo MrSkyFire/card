@@ -40,7 +40,7 @@ jobs:
           from pathlib import Path
           p=Path("app/src/main/cpp/dbsc/comm.c")
           if p.exists():
-              s=p.read_text(errors="ignore").replace('#include <crypt.h>\\n','')
+              s=p.read_text(errors="ignore").replace('#include <crypt.h>','')
               p.write_text(s)
 
           p=Path("app/src/main/cpp/dbsc/hotboot.c")
