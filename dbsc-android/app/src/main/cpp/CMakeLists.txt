@@ -13,6 +13,6 @@ add_library(dbsc SHARED android_bridge.c ${DBSC_C})
 set_source_files_properties("${DBSC_DIR}/comm.c" PROPERTIES COMPILE_DEFINITIONS "main=dbsc_original_main")
 
 target_include_directories(dbsc PRIVATE "${DBSC_DIR}" "${DBSC_DIR}/chat")
-target_compile_definitions(dbsc PRIVATE ANDROID=1)
+target_compile_definitions(dbsc PRIVATE ANDROID=1 index=strchr rindex=strrchr)
 target_compile_options(dbsc PRIVATE -fcommon -Wno-implicit-function-declaration -Wno-int-conversion -Wno-incompatible-pointer-types -Wno-format -Wno-deprecated-non-prototype)
 target_link_libraries(dbsc log z dl m)
